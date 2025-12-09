@@ -1,5 +1,5 @@
 """
-Configuration settings for the Investment KPI project.
+Configuration settings for the portfolio tracking application.
 """
 from pathlib import Path
 
@@ -13,7 +13,7 @@ DB_DIR = DATA_DIR / "db"
 LOG_DIR = PROJECT_ROOT / "log"
 
 # Database configuration
-DB_PATH = DB_DIR / "investment_kpi.db"
+DB_PATH = DB_DIR / "portfolio_tracker.db"
 
 # Logging configuration
 LOADER_LOG_PATH = LOG_DIR / "loader.log"

@@ -1,4 +1,4 @@
-# Investment KPI Project - AI Agent Instructions
+# Portfolio Tracker Project - AI Agent Instructions
 
 ## Project Overview
 Investment portfolio analysis tool for processing German tax/broker export data. Primary data source is CSV exports with German column headers containing transaction history, gains/losses, and tax calculations.

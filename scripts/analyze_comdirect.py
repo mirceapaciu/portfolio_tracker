@@ -248,7 +248,7 @@ def main():
         filepath = sys.argv[1]
     else:
         # Default to the CSV in the data directory
-        filepath = r'd:\src\investment_kpi\data\abrechnungsdaten_comdirect_20251205.csv'
+        filepath = r'd:\src\portfolio_tracker\data\abrechnungsdaten_comdirect_20251205.csv'
     
     print(f"Analyzing comdirect transactions from: {filepath}")
     
@@ -261,7 +261,7 @@ def main():
     print_results(results)
     
     # Also save to CSV
-    output_file = r'd:\src\investment_kpi\data\comdirect_transaction_analysis.csv'
+    output_file = r'd:\src\portfolio_tracker\data\comdirect_transaction_analysis.csv'
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(['Security Name', 'Buy Date', 'Buy Price', 'Share Count', 'Invested Value', 'Sell Date', 'Sell Price', 'Realized P/L'])

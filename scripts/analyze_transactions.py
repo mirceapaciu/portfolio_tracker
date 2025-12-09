@@ -222,7 +222,7 @@ def main():
         filepath = sys.argv[1]
     else:
         # Default to the CSV in the data directory
-        filepath = r'd:\src\investment_kpi\data\steuerlichedetailansichtexport_9772900462_20251205-1606.csv'
+        filepath = r'd:\src\portfolio_tracker\data\steuerlichedetailansichtexport_9772900462_20251205-1606.csv'
     
     print(f"Analyzing transactions from: {filepath}")
     
@@ -235,7 +235,7 @@ def main():
     print_results(results)
     
     # Also save to CSV
-    output_file = r'd:\src\investment_kpi\data\transaction_analysis.csv'
+    output_file = r'd:\src\portfolio_tracker\data\transaction_analysis.csv'
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
         writer.writerow(['Security Name', 'Buy Date', 'Buy Price', 'Share Count', 'Sell Date', 'Sell Price', 'Realized P/L'])
