@@ -22,42 +22,9 @@ from src.repository.create_db import (
 from src.repository.broker_repository import get_or_create_broker
 from src.repository.security_repository import get_or_create_security
 from src.repository.table_repository import get_or_create_table_id
+from src.etl.transform_utils import transform_transaction_type
 
 logger = logging.getLogger(__name__)
-
-
-def transform_transaction_type(raw_type: str) -> str:
-    """
-    Normalize transaction type to standard values.
-    
-    Args:
-        raw_type: Raw transaction type from staging table
-        
-    Returns:
-        Normalized transaction type: 'buy', 'sell', 'dividend', 'interest', 'distribution'
-    """
-    if not raw_type:
-        return None
-    
-    raw_type = raw_type.lower().strip()
-    
-    # Map TradeRepublic transaction types
-    type_mapping = {
-        'buy': 'buy',
-        'kauf': 'buy',
-        'sell': 'sell',
-        'verkauf': 'sell',
-        'dividend': 'dividend',
-        'dividende': 'dividend',
-        'interest': 'interest',
-        'zinsen': 'interest',
-        'distribution': 'distribution',
-        'ausschüttung': 'distribution',
-        'ausschuettung': 'distribution'
-    }
-    
-    return type_mapping.get(raw_type, raw_type)
-
 
 def transform_traderepublic_transactions(db_path: str = None) -> dict:
     """

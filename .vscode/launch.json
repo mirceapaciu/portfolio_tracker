@@ -10,7 +10,7 @@
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
-            "args": ["./data/input/traderepublic_transactions.csv"],
+            "args": ["./data/input/steuerlichedetailansichtexport_9772900462_20251205-1606.csv"],
             "console": "integratedTerminal"
         }
     ]

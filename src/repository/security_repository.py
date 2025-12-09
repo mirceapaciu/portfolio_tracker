@@ -6,8 +6,8 @@ import sqlite3
 from datetime import datetime
 
 
-def get_or_create_security(cursor: sqlite3.Cursor, security_name: str, isin: str = None, 
-                           symbol: str = None, asset_type: str = None) -> int:
+def get_or_create_security(cursor: sqlite3.Cursor, security_name: str, isin: str = None,
+                           symbol: str = None, asset_type: str = None, wkn: str = None) -> int:
     """
     Get security ID, creating the security if it doesn't exist.
     
@@ -22,11 +22,17 @@ def get_or_create_security(cursor: sqlite3.Cursor, security_name: str, isin: str
         Security ID
     """
     # Try to find existing security by name
-    cursor.execute("SELECT id FROM security_t WHERE security_name = ?", (security_name,))
+    cursor.execute("SELECT id, wkn FROM security_t WHERE security_name = ?", (security_name,))
     row = cursor.fetchone()
     
     if row:
-        return row[0]
+        security_id, existing_wkn = row
+        if wkn and not existing_wkn:
+            cursor.execute(
+                "UPDATE security_t SET wkn = ?, updated_at = ? WHERE id = ?",
+                (wkn, datetime.now(), security_id)
+            )
+        return security_id
     
     # If ISIN provided, check if it exists
     if isin:
@@ -35,11 +41,18 @@ def get_or_create_security(cursor: sqlite3.Cursor, security_name: str, isin: str
         if row:
             return row[0]
     
+    # If WKN provided, check if it exists
+    if wkn:
+        cursor.execute("SELECT id FROM security_t WHERE wkn = ?", (wkn,))
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+    
     # Create new security
     cursor.execute(
-        """INSERT INTO security_t (security_name, isin, symbol, asset_type, created_at, updated_at) 
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (security_name, isin, symbol, asset_type, datetime.now(), datetime.now())
+        """INSERT INTO security_t (security_name, wkn, isin, symbol, asset_type, created_at, updated_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (security_name, wkn, isin, symbol, asset_type, datetime.now(), datetime.now())
     )
     return cursor.lastrowid
 
@@ -56,7 +69,7 @@ def get_security_by_name(cursor: sqlite3.Cursor, security_name: str) -> dict | N
         Dictionary with security details or None if not found
     """
     cursor.execute(
-        """SELECT id, security_name, isin, symbol, asset_type, created_at, updated_at 
+          """SELECT id, security_name, wkn, isin, symbol, asset_type, created_at, updated_at 
            FROM security_t WHERE security_name = ?""",
         (security_name,)
     )
@@ -68,11 +81,12 @@ def get_security_by_name(cursor: sqlite3.Cursor, security_name: str) -> dict | N
     return {
         'id': row[0],
         'security_name': row[1],
-        'isin': row[2],
-        'symbol': row[3],
-        'asset_type': row[4],
-        'created_at': row[5],
-        'updated_at': row[6]
+        'wkn': row[2],
+        'isin': row[3],
+        'symbol': row[4],
+        'asset_type': row[5],
+        'created_at': row[6],
+        'updated_at': row[7]
     }
 
 
@@ -88,7 +102,7 @@ def get_security_by_isin(cursor: sqlite3.Cursor, isin: str) -> dict | None:
         Dictionary with security details or None if not found
     """
     cursor.execute(
-        """SELECT id, security_name, isin, symbol, asset_type, created_at, updated_at 
+          """SELECT id, security_name, wkn, isin, symbol, asset_type, created_at, updated_at 
            FROM security_t WHERE isin = ?""",
         (isin,)
     )
@@ -100,16 +114,17 @@ def get_security_by_isin(cursor: sqlite3.Cursor, isin: str) -> dict | None:
     return {
         'id': row[0],
         'security_name': row[1],
-        'isin': row[2],
-        'symbol': row[3],
-        'asset_type': row[4],
-        'created_at': row[5],
-        'updated_at': row[6]
+        'wkn': row[2],
+        'isin': row[3],
+        'symbol': row[4],
+        'asset_type': row[5],
+        'created_at': row[6],
+        'updated_at': row[7]
     }
 
 
 def update_security(cursor: sqlite3.Cursor, security_id: int, isin: str = None,
-                   symbol: str = None, asset_type: str = None):
+                   symbol: str = None, asset_type: str = None, wkn: str = None):
     """
     Update security details.
     
@@ -130,6 +145,10 @@ def update_security(cursor: sqlite3.Cursor, security_id: int, isin: str = None,
     if symbol is not None:
         updates.append("symbol = ?")
         params.append(symbol)
+    
+    if wkn is not None:
+        updates.append("wkn = ?")
+        params.append(wkn)
     
     if asset_type is not None:
         updates.append("asset_type = ?")
@@ -155,7 +174,7 @@ def list_all_securities(cursor: sqlite3.Cursor) -> list[dict]:
         List of dictionaries with security details
     """
     cursor.execute(
-        """SELECT id, security_name, isin, symbol, asset_type, created_at, updated_at 
+        """SELECT id, security_name, wkn, isin, symbol, asset_type, created_at, updated_at 
            FROM security_t ORDER BY security_name"""
     )
     
@@ -164,11 +183,12 @@ def list_all_securities(cursor: sqlite3.Cursor) -> list[dict]:
         securities.append({
             'id': row[0],
             'security_name': row[1],
-            'isin': row[2],
-            'symbol': row[3],
-            'asset_type': row[4],
-            'created_at': row[5],
-            'updated_at': row[6]
+            'wkn': row[2],
+            'isin': row[3],
+            'symbol': row[4],
+            'asset_type': row[5],
+            'created_at': row[6],
+            'updated_at': row[7]
         })
     
     return securities

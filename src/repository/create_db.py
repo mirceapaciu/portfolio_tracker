@@ -13,10 +13,20 @@ def create_comdirect_tax_detail_staging(cursor: sqlite3.Cursor):
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS comdirect_tax_detail_staging (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            steuerjahr INTEGER,
+            buchungstag DATE,
             steuerliches_datum DATE,
+            referenznummer TEXT,
             vorgang TEXT,
+            stueck_nominale DECIMAL,
             bezeichnung TEXT,
+            wkn TEXT,
+            betrag_brutto DECIMAL,
             gewinn_verlust DECIMAL,
+            gewinn_aktien DECIMAL,
+            verlust_aktien DECIMAL,
+            gewinn_sonstige DECIMAL,
+            verlust_sonstige DECIMAL,
             import_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             source_file TEXT,
             processed BOOLEAN DEFAULT 0
@@ -31,6 +41,7 @@ def create_comdirect_transactions_staging(cursor: sqlite3.Cursor):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             datum_ausfuehrung DATE,
             bezeichnung TEXT,
+            wkn TEXT,
             geschaeftsart TEXT,
             stuecke_nominal DECIMAL,
             kurs DECIMAL,
@@ -79,6 +90,7 @@ def create_security_t(cursor: sqlite3.Cursor):
         CREATE TABLE IF NOT EXISTS security_t (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             security_name TEXT UNIQUE NOT NULL,
+            wkn TEXT UNIQUE,
             isin TEXT UNIQUE,
             symbol TEXT,
             asset_type TEXT,
@@ -115,10 +127,12 @@ def create_transaction_t(cursor: sqlite3.Cursor):
             currency TEXT DEFAULT 'EUR',
             staging_table_id INTEGER,
             staging_row_id INTEGER,
+            used_in_realized_gain BOOLEAN DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (security_id) REFERENCES security_t(id),
             FOREIGN KEY (broker_id) REFERENCES broker_t(id),
-            FOREIGN KEY (staging_table_id) REFERENCES table_t(id)
+            FOREIGN KEY (staging_table_id) REFERENCES table_t(id),
+            UNIQUE (staging_table_id, staging_row_id)
         )
     """)
 
@@ -140,5 +154,27 @@ def create_dividend_t(cursor: sqlite3.Cursor):
             FOREIGN KEY (security_id) REFERENCES security_t(id),
             FOREIGN KEY (broker_id) REFERENCES broker_t(id),
             FOREIGN KEY (staging_table_id) REFERENCES table_t(id)
+        )
+    """)
+
+
+def create_realized_gain_t(cursor: sqlite3.Cursor):
+    """Create realized_gain_t summary table if it doesn't exist."""
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS realized_gain_t (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            broker_id INTEGER NOT NULL,
+            security_id INTEGER NOT NULL,
+            shares DECIMAL NOT NULL,
+            invested_value DECIMAL NOT NULL,
+            buy_date DATE NOT NULL,
+            sell_date DATE NOT NULL,
+            p_l DECIMAL NOT NULL,
+            total_dividend DECIMAL DEFAULT 0,
+            dividend_count INTEGER DEFAULT 0,
+            cagr_percentage DECIMAL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (broker_id) REFERENCES broker_t(id),
+            FOREIGN KEY (security_id) REFERENCES security_t(id)
         )
     """)

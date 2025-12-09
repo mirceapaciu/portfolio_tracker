@@ -29,10 +29,12 @@ Data Processing:
 - Date format: `DD.MM.YYYY` with strings like `"02.12.2025"`
 
 
-### Comdirect transactions file
+### Comdirect transaction settlement file
 e.g. abrechnungsdaten_comdirect_20251205.csv
 
-Purpose: Complete transaction history with buy and sell details
+Purpose: Complete transaction history with buy and sell details, including fees.
+Note: This file does not contain bond liquidations, but it contain buy/sell transactions for bonds. The bond liquidations are recorded in umsaetze_*.csv
+This file contains a long history of transactions (multiple years).
 
 Key columns:
 - "Datum Ausführung": Execution date (Note that the column name in the header may have encoding issues, e.g. "Datum Ausf�hrung")
@@ -49,6 +51,27 @@ This file is used for:
 - Understanding the complete investment flow
 - Calculating cost basis and capital gains
 - Tracking transaction fees and costs
+
+Data Processing:
+
+- Parse semicolon-delimited CSVs with German decimal format (comma separator: `47,53` not `47.53`)
+- Handle encoding issues (file contains `St�ck` instead of `Stück` - likely Windows-1252 encoding)
+- Date format: `DD.MM.YYYY` with strings like `"02.12.2025"`
+
+### Comdirect transaction file
+e.g. umsaetze_XXXXXXXX_20251209-1435.csv
+Contains all transactions on the portfolio, including bond liquidations.
+This file can contain maximum 2 years of history. It is recommended to regularly download and archive these files for a complete history.
+
+Key columns:
+- "Buchungstag": Booking date
+- "Gesch�ftstag": Transaction date
+- "St�ck / Nom.": Share count (Negative for sells, positive for buys)
+- "Bezeichnung": Security name
+- "WKN": Security identifier
+- "W�hrung": Currency
+- "Ausf�hrungskurs": Execution price
+- "Umsatz in EUR": Amount in EUR (Negative for sells, positive for buys)
 
 Data Processing:
 
@@ -134,7 +157,7 @@ Columns:
 - `security_name`: Normalized security name (TEXT, UNIQUE)
 - `isin`: International Securities Identification Number (TEXT, UNIQUE)
 - `symbol`: Trading symbol (TEXT)
-- `asset_type`: Type of asset (TEXT) - e.g., stock, ETF, fund
+- `asset_type`: Type of asset (TEXT) - e.g., stock, ETF, fund, bond
 - `created_at`: Record creation timestamp (TIMESTAMP)
 - `updated_at`: Last update timestamp (TIMESTAMP)
 
@@ -162,6 +185,7 @@ Columns:
 - `currency`: Currency code (TEXT) - default EUR
 - `staging_table_id`: Source staging table (INTEGER). References `table_t.id`
 - `staging_row_id`: ID in staging table (INTEGER)
+- `used_in_realized_gain`: Whether this transaction has been used in realized gain calculations (BOOLEAN)
 - `created_at`: Record creation timestamp (TIMESTAMP)
 
 #### `dividend_t`
@@ -178,6 +202,22 @@ Columns:
 - `staging_table_id`: Source staging table (INTEGER). References `table_t.id`
 - `staging_row_id`: ID in staging table (INTEGER)
 - `created_at`: Record creation timestamp (TIMESTAMP)
+
+#### `realized_gain_t`
+Tracks realized gains/losses from sales.
+
+Columns:
+- `id`: Primary key (auto-increment)  
+- `broker_id`: Foreign key to broker table (INTEGER)
+- `security_id`: Foreign key to security table (INTEGER)
+- `shares`: Number of shares sold (DECIMAL)
+- `invested_value`: Total value of the BUY transactions (DECIMAL)
+- `buy_date`: Date of the BUY transaction (DATE)
+- `sell_date`: Date of the SELL transaction (DATE)
+- `p_l`: Realized profit/loss (DECIMAL)
+- `total_dividend`: Total dividends received during holding period (DECIMAL)
+- `dividend_count`: Number of dividend payments received (INTEGER)
+- `cagr_percentage`: Compound Annual Growth Rate (DECIMAL)
 
 ### Data Flow
 1. Import CSV files into broker-specific staging tables (preserves original data)

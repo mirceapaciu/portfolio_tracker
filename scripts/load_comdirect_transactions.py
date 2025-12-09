@@ -83,6 +83,7 @@ def load_comdirect_transactions(filepath: str, db_path: str = None):
         datum_ausfuehrung = None
         bezeichnung = None
         geschaeftsart = None
+        wkn = None
         stuecke_nominal = None
         kurs = None
         kurswert_eur = None
@@ -96,6 +97,8 @@ def load_comdirect_transactions(filepath: str, db_path: str = None):
                 datum_ausfuehrung = parse_german_date(value)
             elif 'bezeichnung' in key_lower:
                 bezeichnung = value.strip() if value else None
+            elif 'wkn' == key_lower:
+                wkn = value.strip() if value else None
             elif re.search(r'gesch.*ftsart', key_lower):
                 geschaeftsart = value.strip() if value else None
             elif re.search(r'st.*cke/nom.', key_lower):
@@ -117,12 +120,12 @@ def load_comdirect_transactions(filepath: str, db_path: str = None):
         entgelt_eur_float = float(entgelt_eur) if entgelt_eur is not None else None
         
         cursor.execute("""
-            INSERT INTO comdirect_transactions_staging 
-            (datum_ausfuehrung, bezeichnung, geschaeftsart, stuecke_nominal, 
-             kurs, kurswert_eur, kundenendbetrag_eur, entgelt_eur, source_file)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (datum_ausfuehrung, bezeichnung, geschaeftsart, stuecke_nominal_float,
-              kurs_float, kurswert_eur_float, kundenendbetrag_eur_float, entgelt_eur_float, filepath_obj.name))
+                        INSERT INTO comdirect_transactions_staging 
+                        (datum_ausfuehrung, bezeichnung, wkn, geschaeftsart, stuecke_nominal, 
+                         kurs, kurswert_eur, kundenendbetrag_eur, entgelt_eur, source_file)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (datum_ausfuehrung, bezeichnung, wkn, geschaeftsart, stuecke_nominal_float,
+                            kurs_float, kurswert_eur_float, kundenendbetrag_eur_float, entgelt_eur_float, filepath_obj.name))
         
         records_imported += 1
 
