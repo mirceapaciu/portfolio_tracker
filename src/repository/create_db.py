@@ -178,3 +178,36 @@ def create_realized_gain_t(cursor: sqlite3.Cursor):
             FOREIGN KEY (security_id) REFERENCES security_t(id)
         )
     """)
+
+
+def create_transaction_match_t(cursor: sqlite3.Cursor):
+    """Create transaction_match_t allocation table if it doesn't exist."""
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS transaction_match_t (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            broker_id INTEGER NOT NULL,
+            security_id INTEGER NOT NULL,
+            buy_transaction_id INTEGER NOT NULL,
+            sell_transaction_id INTEGER NOT NULL,
+            shares DECIMAL NOT NULL,
+            allocated_cost DECIMAL NOT NULL,
+            allocated_proceeds DECIMAL NOT NULL,
+            allocated_fees DECIMAL DEFAULT 0,
+            cost_basis_method TEXT DEFAULT 'FIFO',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (broker_id) REFERENCES broker_t(id),
+            FOREIGN KEY (security_id) REFERENCES security_t(id),
+            FOREIGN KEY (buy_transaction_id) REFERENCES transaction_t(id),
+            FOREIGN KEY (sell_transaction_id) REFERENCES transaction_t(id)
+        )
+    """)
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_transaction_match_broker_security ON transaction_match_t (broker_id, security_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_transaction_match_buy ON transaction_match_t (buy_transaction_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_transaction_match_sell ON transaction_match_t (sell_transaction_id)"
+    )

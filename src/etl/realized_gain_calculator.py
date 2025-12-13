@@ -1,10 +1,13 @@
 """Calculate realized gains from normalized transactions.
 
-This module reads unprocessed rows from ``transaction_t`` and creates
-entries in ``realized_gain_t`` using the same aggregation approach as the
-legacy CSV-based ``create_aggregated_report.py`` script. Transactions are
-matched FIFO by broker and security, dividends are linked to the matching
-holding period, and used rows are flagged to avoid duplicate processing.
+This module reads allocation rows from ``transaction_match_t`` (BUY ↔ SELL
+matching) and creates entries in ``realized_gain_t`` using the same
+aggregation approach as the legacy CSV-based ``create_aggregated_report.py``
+script.
+
+Dividends are sourced from ``transaction_t`` (type: dividend) and linked to
+the matching holding period. Transactions are flagged via
+``transaction_t.used_in_realized_gain`` to avoid duplicate processing.
 """
 
 from __future__ import annotations
@@ -28,6 +31,7 @@ from src.repository.create_db import (
     create_broker_t,
     create_realized_gain_t,
     create_security_t,
+    create_transaction_match_t,
     create_transaction_t,
 )
 from src.etl.portfolio_xirr import _coalesce_amount, _to_date
@@ -48,7 +52,7 @@ def _calculate_cagr(initial_value: float, final_value: float, years: float) -> f
 
 
 def calculate_realized_gains(db_path: str | None = None) -> Dict[str, int | float]:
-    """Populate ``realized_gain_t`` from unused ``transaction_t`` rows."""
+    """Populate ``realized_gain_t`` from unused, fully-matched SELL allocations."""
     if db_path is None:
         db_path = str(DB_PATH)
 
@@ -60,131 +64,135 @@ def calculate_realized_gains(db_path: str | None = None) -> Dict[str, int | floa
     create_broker_t(cursor)
     create_security_t(cursor)
     create_transaction_t(cursor)
+    create_transaction_match_t(cursor)
     create_realized_gain_t(cursor)
 
+    # Process only SELL transactions that are fully allocated in transaction_match_t.
     cursor.execute(
         """
-        SELECT id, security_id, broker_id, transaction_date, transaction_type,
-               shares, price_per_share, total_value, fees, net_amount
-        FROM transaction_t
-        WHERE used_in_realized_gain = 0
-          AND transaction_type IN ('buy', 'sell', 'dividend')
-        ORDER BY broker_id, security_id, transaction_date, id
+        SELECT s.id AS sell_id,
+               ABS(COALESCE(s.shares, 0)) AS sell_shares,
+               COALESCE(SUM(m.shares), 0) AS matched_shares
+        FROM transaction_t s
+        LEFT JOIN transaction_match_t m ON m.sell_transaction_id = s.id
+        WHERE s.used_in_realized_gain = 0
+          AND s.transaction_type = 'sell'
+        GROUP BY s.id
         """
     )
-    rows = cursor.fetchall()
+    sell_rows = cursor.fetchall()
+    eligible_sell_ids: List[int] = []
+    for row in sell_rows:
+        sell_shares = float(row["sell_shares"] or 0.0)
+        matched_shares = float(row["matched_shares"] or 0.0)
+        if sell_shares > 0 and matched_shares + FLOAT_TOLERANCE >= sell_shares:
+            eligible_sell_ids.append(int(row["sell_id"]))
 
-    if not rows:
-        logger.info("No unused buy/sell/dividend transactions found")
+    if not eligible_sell_ids:
+        logger.info("No unused fully-matched sell transactions found")
         conn.close()
         return {"positions_created": 0, "transactions_marked": 0}
 
-    grouped: Dict[
-        Tuple[int, int],
-        Dict[str, List[sqlite3.Row]]
-    ] = defaultdict(lambda: {"buy": [], "sell": [], "dividend": []})
+    placeholders = ",".join(["?"] * len(eligible_sell_ids))
+    cursor.execute(
+        f"""
+        SELECT m.id AS match_id,
+               m.broker_id,
+               m.security_id,
+               m.buy_transaction_id,
+               m.sell_transaction_id,
+               m.shares,
+               m.allocated_cost,
+               m.allocated_proceeds,
+               bt.transaction_date AS buy_date,
+               st.transaction_date AS sell_date
+        FROM transaction_match_t m
+        JOIN transaction_t bt ON bt.id = m.buy_transaction_id
+        JOIN transaction_t st ON st.id = m.sell_transaction_id
+        WHERE m.sell_transaction_id IN ({placeholders})
+        ORDER BY m.broker_id, m.security_id, st.transaction_date, bt.transaction_date, m.id
+        """,
+        eligible_sell_ids,
+    )
+    match_rows = cursor.fetchall()
 
-    for row in rows:
-        key = (row["broker_id"], row["security_id"])
-        grouped[key][row["transaction_type"].lower()].append(row)
+    if not match_rows:
+        logger.info("No allocation rows found in transaction_match_t for eligible sells")
+        conn.close()
+        return {"positions_created": 0, "transactions_marked": 0}
 
     aggregated_positions: Dict[
         Tuple[int, int, date, date],
         Dict[str, float | int | date]
     ] = {}
     positions_by_security: Dict[Tuple[int, int], List[Dict[str, float | int | date]]] = defaultdict(list)
-    dividends_by_security: Dict[Tuple[int, int], List[Dict[str, float | date | int]]] = {}
     used_transaction_ids: set[int] = set()
 
-    # Prepare dividends collections once per security/broker
-    for key, parts in grouped.items():
-        dividend_rows = []
-        for row in parts["dividend"]:
-            div_date = _to_date(row["transaction_date"])
-            if div_date is None:
-                continue
-            dividend_rows.append(
-                {
-                    "id": row["id"],
-                    "date": div_date,
-                    "amount": _coalesce_amount(row, prefer_net=False),
-                    "shares": abs(float(row["shares"])) if row["shares"] else 0.0,
-                }
-            )
-        dividends_by_security[key] = dividend_rows
+    # Aggregate realized positions from allocation rows
+    for row in match_rows:
+        broker_id = int(row["broker_id"])
+        security_id = int(row["security_id"])
+        buy_date = _to_date(row["buy_date"])
+        sell_date = _to_date(row["sell_date"])
+        matched_shares = abs(float(row["shares"])) if row["shares"] else 0.0
+        if buy_date is None or sell_date is None or matched_shares <= 0:
+            continue
 
-    # Match buy/sell pairs FIFO per broker & security
-    for key, parts in grouped.items():
-        broker_id, security_id = key
-        buys = sorted(parts["buy"], key=lambda r: (_to_date(r["transaction_date"]), r["id"]))
-        sells = sorted(parts["sell"], key=lambda r: (_to_date(r["transaction_date"]), r["id"]))
+        invested_value = float(row["allocated_cost"] or 0.0)
+        proceeds_value = float(row["allocated_proceeds"] or 0.0)
+        realized_pl = proceeds_value - invested_value
 
-        buy_lots = []
-        for row in buys:
-            buy_date = _to_date(row["transaction_date"])
-            shares = abs(float(row["shares"])) if row["shares"] else 0.0
-            if buy_date is None or shares <= 0:
-                continue
-            cost_basis = abs(_coalesce_amount(row))
-            cost_per_share = cost_basis / shares if shares else 0.0
-            buy_lots.append(
-                {
-                    "id": row["id"],
-                    "buy_date": buy_date,
-                    "shares_remaining": shares,
-                    "cost_per_share": cost_per_share,
-                }
-            )
+        key = (broker_id, security_id)
+        agg_key = (broker_id, security_id, buy_date, sell_date)
+        position = aggregated_positions.get(agg_key)
+        if not position:
+            position = {
+                "broker_id": broker_id,
+                "security_id": security_id,
+                "buy_date": buy_date,
+                "sell_date": sell_date,
+                "shares": 0.0,
+                "invested_value": 0.0,
+                "realized_pl": 0.0,
+                "total_dividend": 0.0,
+                "dividend_count": 0,
+                "cagr_percentage": 0.0,
+            }
+            aggregated_positions[agg_key] = position
+            positions_by_security[key].append(position)
 
-        for sell_row in sells:
-            sell_date = _to_date(sell_row["transaction_date"])
-            sell_shares = abs(float(sell_row["shares"])) if sell_row["shares"] else 0.0
-            if sell_date is None or sell_shares <= 0:
-                continue
+        position["shares"] += matched_shares
+        position["invested_value"] += invested_value
+        position["realized_pl"] += realized_pl
 
-            proceeds_total = abs(_coalesce_amount(sell_row))
-            sell_price_per_share = proceeds_total / sell_shares if sell_shares else 0.0
-            shares_remaining = sell_shares
-
-            while shares_remaining > 0 and buy_lots:
-                lot = buy_lots[0]
-                matched_shares = min(shares_remaining, lot["shares_remaining"])
-                invested_value = lot["cost_per_share"] * matched_shares
-                realized_pl = sell_price_per_share * matched_shares - invested_value
-
-                agg_key = (broker_id, security_id, lot["buy_date"], sell_date)
-                position = aggregated_positions.get(agg_key)
-                if not position:
-                    position = {
-                        "broker_id": broker_id,
-                        "security_id": security_id,
-                        "buy_date": lot["buy_date"],
-                        "sell_date": sell_date,
-                        "shares": 0.0,
-                        "invested_value": 0.0,
-                        "realized_pl": 0.0,
-                        "total_dividend": 0.0,
-                        "dividend_count": 0,
-                        "cagr_percentage": 0.0,
-                    }
-                    aggregated_positions[agg_key] = position
-                    positions_by_security[key].append(position)
-
-                position["shares"] += matched_shares
-                position["invested_value"] += invested_value
-                position["realized_pl"] += realized_pl
-
-                lot["shares_remaining"] -= matched_shares
-                shares_remaining -= matched_shares
-
-                if lot["shares_remaining"] <= FLOAT_TOLERANCE:
-                    lot["shares_remaining"] = 0.0
-                    used_transaction_ids.add(lot["id"])
-                    buy_lots.pop(0)
-
-            if shares_remaining <= FLOAT_TOLERANCE:
-                shares_remaining = 0.0
-                used_transaction_ids.add(sell_row["id"])
+    # Fetch unused dividends and match them to aggregated positions
+    cursor.execute(
+        """
+        SELECT id, security_id, broker_id, transaction_date, shares, total_value, net_amount, price_per_share
+        FROM transaction_t
+        WHERE used_in_realized_gain = 0
+          AND transaction_type = 'dividend'
+        ORDER BY broker_id, security_id, transaction_date, id
+        """
+    )
+    dividend_source_rows = cursor.fetchall()
+    dividends_by_security: Dict[Tuple[int, int], List[Dict[str, float | date | int]]] = defaultdict(list)
+    relevant_keys = set(positions_by_security.keys())
+    for row in dividend_source_rows:
+        key = (int(row["broker_id"]), int(row["security_id"]))
+        if key not in relevant_keys:
+            continue
+        div_date = _to_date(row["transaction_date"])
+        if div_date is None:
+            continue
+        dividends_by_security[key].append(
+            {
+                "id": int(row["id"]),
+                "date": div_date,
+                "amount": _coalesce_amount(row, prefer_net=False),
+                "shares": abs(float(row["shares"])) if row["shares"] else 0.0,
+            }
+        )
 
     # Match dividends to aggregated positions
     for key, positions in positions_by_security.items():
@@ -274,6 +282,38 @@ def calculate_realized_gains(db_path: str | None = None) -> Dict[str, int | floa
         """,
         insert_payload,
     )
+
+    # Mark eligible sells as used.
+    for sell_id in eligible_sell_ids:
+        used_transaction_ids.add(sell_id)
+
+        # Mark BUY transactions as used only when fully allocated to sells that are already
+        # processed, or are processed in this run.
+        sell_placeholders = ",".join(["?"] * len(eligible_sell_ids))
+        cursor.execute(
+                f"""
+                SELECT b.id AS buy_id,
+                             ABS(COALESCE(b.shares, 0)) AS buy_shares,
+                             COALESCE(SUM(m.shares), 0) AS matched_shares
+                FROM transaction_t b
+                JOIN transaction_match_t m ON m.buy_transaction_id = b.id
+                JOIN transaction_t s ON s.id = m.sell_transaction_id
+                WHERE b.used_in_realized_gain = 0
+                    AND b.transaction_type = 'buy'
+                    AND (
+                        s.used_in_realized_gain = 1
+                        OR s.id IN ({sell_placeholders})
+                    )
+                GROUP BY b.id
+                """,
+                eligible_sell_ids,
+        )
+    buy_allocation_rows = cursor.fetchall()
+    for row in buy_allocation_rows:
+        buy_shares = float(row["buy_shares"] or 0.0)
+        matched_shares = float(row["matched_shares"] or 0.0)
+        if buy_shares > 0 and matched_shares + FLOAT_TOLERANCE >= buy_shares:
+            used_transaction_ids.add(int(row["buy_id"]))
 
     if used_transaction_ids:
         cursor.executemany(

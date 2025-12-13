@@ -203,6 +203,21 @@ Columns:
 - `staging_row_id`: ID in staging table (INTEGER)
 - `created_at`: Record creation timestamp (TIMESTAMP)
 
+#### `transaction_match_t`
+Intermediate table that stores the BUY ↔ SELL allocation used for realized gain calculations (e.g., FIFO). This avoids mutating/splitting rows in `transaction_t` while keeping the matching auditable.
+
+Columns:
+- `id`: Primary key (auto-increment)
+- `broker_id`: Foreign key to broker table (INTEGER)
+- `security_id`: Foreign key to security table (INTEGER)
+- `buy_transaction_id`: FK to `transaction_t.id` for the BUY leg (INTEGER)
+- `sell_transaction_id`: FK to `transaction_t.id` for the SELL leg (INTEGER)
+- `shares`: Number of shares allocated from BUY to SELL (DECIMAL)
+- `allocated_cost`: Cost basis allocated to this match (DECIMAL)
+- `allocated_proceeds`: Proceeds allocated to this match (DECIMAL)
+- `allocated_fees`: Fees allocated to this match (DECIMAL)
+- `created_at`: Record creation timestamp (TIMESTAMP)
+
 #### `realized_gain_t`
 Tracks realized gains/losses from sales.
 
@@ -225,3 +240,4 @@ Columns:
 3. Link transactions/dividends to securities master data
 4. Run analysis queries against normalized tables
 
+#### 

@@ -5,10 +5,12 @@ from pathlib import Path
 import unittest
 
 from src.etl.realized_gain_calculator import calculate_realized_gains
+from src.etl.create_transaction_matches import create_transaction_matches
 from src.repository.create_db import (
     create_broker_t,
     create_realized_gain_t,
     create_security_t,
+    create_transaction_match_t,
     create_transaction_t,
 )
 
@@ -23,6 +25,7 @@ class CalculateRealizedGainsTest(unittest.TestCase):
             create_broker_t(cursor)
             create_security_t(cursor)
             create_transaction_t(cursor)
+            create_transaction_match_t(cursor)
             create_realized_gain_t(cursor)
 
             cursor.execute("INSERT INTO broker_t (broker_name) VALUES (?)", ("comdirect",))
@@ -53,6 +56,8 @@ class CalculateRealizedGainsTest(unittest.TestCase):
 
             conn.commit()
             conn.close()
+
+            create_transaction_matches(str(db_path), clear_existing=True)
 
             stats = calculate_realized_gains(str(db_path))
             self.assertEqual(stats["positions_created"], 2)
