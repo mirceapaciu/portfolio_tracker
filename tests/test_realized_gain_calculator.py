@@ -57,7 +57,11 @@ class CalculateRealizedGainsTest(unittest.TestCase):
             conn.commit()
             conn.close()
 
-            create_transaction_matches(str(db_path), clear_existing=True)
+            stats_first = create_transaction_matches(str(db_path), clear_existing=True)
+            self.assertEqual(stats_first["matches_created"], 2)
+
+            stats_second = create_transaction_matches(str(db_path))
+            self.assertEqual(stats_second["matches_created"], 0)
 
             stats = calculate_realized_gains(str(db_path))
             self.assertEqual(stats["positions_created"], 2)

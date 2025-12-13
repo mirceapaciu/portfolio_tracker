@@ -2,7 +2,8 @@
 
 This module performs FIFO matching per (broker_id, security_id) using rows from
 ``transaction_t`` (types: buy/sell). It writes one row per partial allocation into
-``transaction_match_t``.
+``transaction_match_t`` and can be re-run incrementally—only unmatched shares are
+allocated when existing rows are present.
 
 Notes on amounts:
 - ``allocated_cost`` is based on BUY cash outflow per share (uses ``net_amount`` when present).
@@ -57,6 +58,22 @@ def _abs_float(value: float | int | None) -> float:
     return abs(float(value))
 
 
+def _load_existing_allocations(
+    cursor: sqlite3.Cursor,
+    column_name: str,
+    ids: List[int],
+) -> Dict[int, float]:
+    if not ids:
+        return {}
+    placeholders = ",".join(["?"] * len(ids))
+    query = (
+        f"SELECT {column_name} AS tx_id, COALESCE(SUM(shares), 0) AS matched_shares "
+        f"FROM transaction_match_t WHERE {column_name} IN ({placeholders}) GROUP BY {column_name}"
+    )
+    cursor.execute(query, ids)
+    return {int(row["tx_id"]): float(row["matched_shares"] or 0.0) for row in cursor.fetchall()}
+
+
 def create_transaction_matches(
     db_path: str | None = None,
     *,
@@ -76,14 +93,6 @@ def create_transaction_matches(
     create_security_t(cursor)
     create_transaction_t(cursor)
     create_transaction_match_t(cursor)
-
-    cursor.execute("SELECT COUNT(1) FROM transaction_match_t")
-    existing_count = int(cursor.fetchone()[0])
-    if existing_count > 0 and not clear_existing:
-        conn.close()
-        raise RuntimeError(
-            f"transaction_match_t already has {existing_count} rows; re-run with --clear to rebuild"
-        )
 
     if clear_existing:
         cursor.execute("DELETE FROM transaction_match_t")
@@ -121,6 +130,11 @@ def create_transaction_matches(
         buys = sorted(parts["buy"], key=lambda r: (_to_date(r["transaction_date"]), r["id"]))
         sells = sorted(parts["sell"], key=lambda r: (_to_date(r["transaction_date"]), r["id"]))
 
+        buy_ids = [int(row["id"]) for row in buys]
+        sell_ids = [int(row["id"]) for row in sells]
+        buy_allocations = _load_existing_allocations(cursor, "buy_transaction_id", buy_ids)
+        sell_allocations = _load_existing_allocations(cursor, "sell_transaction_id", sell_ids)
+
         buy_lots: List[BuyLot] = []
         for buy_row in buys:
             buy_dt = _to_date(buy_row["transaction_date"])
@@ -130,11 +144,15 @@ def create_transaction_matches(
 
             cost_basis_total = abs(_coalesce_amount(buy_row))
             cost_per_share = cost_basis_total / shares if shares else 0.0
+            allocated = buy_allocations.get(int(buy_row["id"]), 0.0)
+            shares_remaining = shares - allocated
+            if shares_remaining <= FLOAT_TOLERANCE:
+                continue
             buy_lots.append(
                 BuyLot(
                     tx_id=int(buy_row["id"]),
                     buy_date=buy_dt,
-                    shares_remaining=shares,
+                    shares_remaining=shares_remaining,
                     cost_per_share=cost_per_share,
                 )
             )
@@ -146,13 +164,16 @@ def create_transaction_matches(
             if sell_dt is None or sell_shares_total <= 0:
                 continue
 
+            already_matched = sell_allocations.get(sell_tx_id, 0.0)
+            shares_to_match = sell_shares_total - already_matched
+            if shares_to_match <= FLOAT_TOLERANCE:
+                continue
+
             proceeds_total = abs(_coalesce_amount(sell_row))
             proceeds_per_share = proceeds_total / sell_shares_total if sell_shares_total else 0.0
 
             sell_fees_total = _abs_float(sell_row["fees"])
             sell_fee_per_share = sell_fees_total / sell_shares_total if sell_shares_total else 0.0
-
-            shares_to_match = sell_shares_total
             while shares_to_match > FLOAT_TOLERANCE and buy_lots:
                 lot = buy_lots[0]
                 matched_shares = min(shares_to_match, lot.shares_remaining)
