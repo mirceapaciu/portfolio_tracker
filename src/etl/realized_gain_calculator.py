@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from collections import defaultdict
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -30,6 +30,7 @@ from src.repository.create_db import (
     create_security_t,
     create_transaction_t,
 )
+from src.etl.portfolio_xirr import _coalesce_amount, _to_date
 
 logger = logging.getLogger(__name__)
 
@@ -44,17 +45,6 @@ def _calculate_cagr(initial_value: float, final_value: float, years: float) -> f
     if final_value <= 0:
         return -100.0 * (1 - (abs(final_value) / initial_value) ** (1 / years))
     return ((final_value / initial_value) ** (1 / years) - 1) * 100
-
-
-def _coalesce_amount(row: sqlite3.Row, prefer_net: bool = True) -> float:
-    """Return the best available monetary value for a transaction."""
-    if prefer_net and row["net_amount"] is not None:
-        return float(row["net_amount"])
-    if row["total_value"] is not None:
-        return float(row["total_value"])
-    if row["price_per_share"] is not None and row["shares"]:
-        return float(row["price_per_share"]) * float(row["shares"])
-    return 0.0
 
 
 def calculate_realized_gains(db_path: str | None = None) -> Dict[str, int | float]:
