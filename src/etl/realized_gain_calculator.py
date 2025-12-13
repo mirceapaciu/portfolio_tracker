@@ -34,21 +34,7 @@ from src.repository.create_db import (
 logger = logging.getLogger(__name__)
 
 TransactionRow = Dict[str, float | int | str | None]
-
-
-def _to_date(value: str | datetime | date | None) -> date | None:
-    """Convert SQLite date/text values to ``date`` objects."""
-    if value is None:
-        return None
-    if isinstance(value, date) and not isinstance(value, datetime):
-        return value
-    if isinstance(value, datetime):
-        return value.date()
-    try:
-        return datetime.fromisoformat(value).date()  # type: ignore[arg-type]
-    except ValueError as exc:  # pragma: no cover - defensive guard
-        logger.error("Invalid date value '%s': %s", value, exc)
-        return None
+FLOAT_TOLERANCE = 1e-9
 
 
 def _calculate_cagr(initial_value: float, final_value: float, years: float) -> float:
@@ -201,11 +187,13 @@ def calculate_realized_gains(db_path: str | None = None) -> Dict[str, int | floa
                 lot["shares_remaining"] -= matched_shares
                 shares_remaining -= matched_shares
 
-                if lot["shares_remaining"] <= 0:
+                if lot["shares_remaining"] <= FLOAT_TOLERANCE:
+                    lot["shares_remaining"] = 0.0
                     used_transaction_ids.add(lot["id"])
                     buy_lots.pop(0)
 
-            if shares_remaining == 0:
+            if shares_remaining <= FLOAT_TOLERANCE:
+                shares_remaining = 0.0
                 used_transaction_ids.add(sell_row["id"])
 
     # Match dividends to aggregated positions
