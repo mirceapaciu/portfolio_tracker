@@ -218,7 +218,6 @@ def calculate_portfolio_xirr(
 
     cashflows: Dict[date, float] = defaultdict(float)
     cashflow_details: List[Tuple[date, float, str]] = []
-    cashflow_breakdown: Dict[date, List[str]] = defaultdict(list)
     open_positions: Dict[int, Dict[str, float | date | None | str]] = defaultdict(
         lambda: {
             "net_shares": 0.0,
@@ -238,7 +237,6 @@ def calculate_portfolio_xirr(
         cashflows[tx_date] += amount
         security_name = row["security_name"] or f"Security {row['security_id']}"
         cashflow_details.append((tx_date, amount, security_name))
-        cashflow_breakdown[tx_date].append(f"{amount:+.2f} ({security_name})")
 
         tx_type = (row["transaction_type"] or "").strip().lower()
         shares = float(row["shares"] or 0.0)
@@ -282,9 +280,6 @@ def calculate_portfolio_xirr(
             cashflow_details.append(
                 (valuation_date, value, f"{security_name} (open position)")
             )
-            cashflow_breakdown[valuation_date].append(
-                f"{value:+.2f} ({security_name} open)"
-            )
 
     if not cashflows:
         logger.info("No valid cash flows found for %s", asset_type_filter)
@@ -293,12 +288,7 @@ def calculate_portfolio_xirr(
     ordered_cashflows = sorted(cashflows.items(), key=lambda item: item[0])
     if debug:
         if debug_csv_path:
-            _write_cashflow_debug_csv(
-                debug_csv_path,
-                cashflow_details,
-                ordered_cashflows,
-                cashflow_breakdown,
-            )
+            _write_cashflow_debug_csv(debug_csv_path, cashflow_details)
         else:
             logger.warning("Debug flag enabled but no CSV path provided; skipping export")
     return _xirr_from_cashflows(ordered_cashflows)
@@ -307,10 +297,8 @@ def calculate_portfolio_xirr(
 def _write_cashflow_debug_csv(
     csv_path: str,
     detail_entries: List[Tuple[date, float, str]],
-    aggregated_entries: List[Tuple[date, float]],
-    breakdown: Dict[date, List[str]],
 ) -> None:
-    """Persist cash flow debug data to CSV for detailed analysis."""
+    """Persist detailed cash flow debug data to CSV."""
     output_path = Path(csv_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     rows_written = 0
@@ -326,24 +314,6 @@ def _write_cashflow_debug_csv(
                 ["detail", flow_date.isoformat(), f"{amount:.2f}", security_name]
             )
             rows_written += 1
-
-        for flow_date, amount in aggregated_entries:
-            components = breakdown.get(flow_date, [])
-            component_label = (
-                f"{len(components)} component{'s' if len(components) != 1 else ''}"
-            )
-            writer.writerow(
-                [
-                    "aggregate_total",
-                    flow_date.isoformat(),
-                    f"{amount:.2f}",
-                    component_label,
-                ]
-            )
-            rows_written += 1
-            for component in components:
-                writer.writerow(["aggregate_component", flow_date.isoformat(), "", component])
-                rows_written += 1
 
     logger.info(
         "Cash flow debug CSV written to %s (%d rows)", output_path, rows_written
