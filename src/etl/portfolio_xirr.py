@@ -10,7 +10,7 @@ import sqlite3
 from collections import defaultdict
 from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import sys
 
@@ -181,13 +181,16 @@ def _xirr_from_cashflows(cashflows: List[Tuple[date, float]]) -> float | None:
 
 def calculate_portfolio_xirr(
     db_path: str | None = None,
-    asset_type_filter: str = "stock",
+    asset_type_filter: Optional[str] = None,
     debug: bool = False,
     debug_csv_path: str | None = None,
 ) -> float | None:
-    """Return the XIRR of all cash flows for the chosen asset type."""
+    """Return the XIRR of all cash flows for the chosen asset scope."""
     if db_path is None:
         db_path = str(DB_PATH)
+
+    if asset_type_filter is not None and asset_type_filter.lower() == "all":
+        asset_type_filter = None
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -196,24 +199,33 @@ def calculate_portfolio_xirr(
     create_security_t(cursor)
     create_transaction_t(cursor)
 
-    cursor.execute(
+    asset_filter_clause = ""
+    params: Tuple[str, ...] = ()
+    if asset_type_filter:
+        asset_filter_clause = """
+          AND s.asset_type IS NOT NULL
+          AND LOWER(s.asset_type) = LOWER(?)
         """
+        params = (asset_type_filter,)
+
+    cursor.execute(
+        f"""
          SELECT t.security_id, t.transaction_date, t.transaction_type, t.net_amount, t.total_value,
              t.price_per_share, t.shares, s.security_name
         FROM transaction_t t
         JOIN security_t s ON s.id = t.security_id
         WHERE t.transaction_date IS NOT NULL
-          AND s.asset_type IS NOT NULL
-          AND LOWER(s.asset_type) = LOWER(?)
+        {asset_filter_clause}
         ORDER BY t.transaction_date, t.id
         """,
-        (asset_type_filter,),
+        params,
     )
     rows = cursor.fetchall()
     conn.close()
 
+    scope_label = asset_type_filter or "all asset types"
     if not rows:
-        logger.info("No %s transactions available for XIRR", asset_type_filter)
+        logger.info("No %s transactions available for XIRR", scope_label)
         return None
 
     cashflows: Dict[date, float] = defaultdict(float)
@@ -282,7 +294,7 @@ def calculate_portfolio_xirr(
             )
 
     if not cashflows:
-        logger.info("No valid cash flows found for %s", asset_type_filter)
+        logger.info("No valid cash flows found for %s", scope_label)
         return None
 
     ordered_cashflows = sorted(cashflows.items(), key=lambda item: item[0])

@@ -45,6 +45,18 @@
 	- `python scripts/load_traderepublic_transactions.py data/input/traderepublic_transactions.csv`
 4. **Run analytics** – execute the transformation/analysis scripts as needed, e.g. `python scripts/create_aggregated_report.py` to refresh `data/aggregated_investment_report.csv`.
 
+## Streamlit UI
+Once the normalized tables are populated, you can explore the data through a lightweight dashboard:
+
+1. Install the UI dependencies (`pip install streamlit pandas` or `pip install -e .`).
+2. Launch the app from the project root with:
+
+	```
+	streamlit run src/ui/app.py
+	```
+
+The main **Overview** page highlights the total value and count of open positions plus the portfolio-level XIRR (including the transaction date range used for the calculation). A second page, **Open Positions**, lists every holding with the latest trade price so you can filter, sort, and export the detailed view. Both pages default to an **All** asset-type filter, but you can narrow the metrics down to a specific classification whenever needed.
+
 ## Data Files
 - `data/input/` – raw broker exports (semicolon CSV, Windows-1252 compatible) that remain untouched.
 - `data/db/portfolio_tracker.db` – SQLite database containing staging and normalized tables for reproducible analytics.
