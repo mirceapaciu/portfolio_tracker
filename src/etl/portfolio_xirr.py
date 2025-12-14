@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import argparse
+import csv
 import logging
 import math
 import sqlite3
@@ -23,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 OUTFLOW_TYPES = {"buy"}
 INFLOW_TYPES = {"sell", "dividend", "interest", "distribution"}
+FLOAT_TOLERANCE = 1e-9
 
 BRACKET_SCAN_POINTS = (
     -0.9999,
@@ -179,6 +182,8 @@ def _xirr_from_cashflows(cashflows: List[Tuple[date, float]]) -> float | None:
 def calculate_portfolio_xirr(
     db_path: str | None = None,
     asset_type_filter: str = "stock",
+    debug: bool = False,
+    debug_csv_path: str | None = None,
 ) -> float | None:
     """Return the XIRR of all cash flows for the chosen asset type."""
     if db_path is None:
@@ -193,8 +198,8 @@ def calculate_portfolio_xirr(
 
     cursor.execute(
         """
-        SELECT t.transaction_date, t.transaction_type, t.net_amount, t.total_value,
-               t.price_per_share, t.shares
+         SELECT t.security_id, t.transaction_date, t.transaction_type, t.net_amount, t.total_value,
+             t.price_per_share, t.shares, s.security_name
         FROM transaction_t t
         JOIN security_t s ON s.id = t.security_id
         WHERE t.transaction_date IS NOT NULL
@@ -212,6 +217,16 @@ def calculate_portfolio_xirr(
         return None
 
     cashflows: Dict[date, float] = defaultdict(float)
+    cashflow_details: List[Tuple[date, float, str]] = []
+    cashflow_breakdown: Dict[date, List[str]] = defaultdict(list)
+    open_positions: Dict[int, Dict[str, float | date | None | str]] = defaultdict(
+        lambda: {
+            "net_shares": 0.0,
+            "last_price": None,
+            "last_price_date": None,
+            "security_name": None,
+        }
+    )
     for row in rows:
         tx_date = _to_date(row["transaction_date"])
         if tx_date is None:
@@ -221,20 +236,148 @@ def calculate_portfolio_xirr(
         if amount == 0.0:
             continue
         cashflows[tx_date] += amount
+        security_name = row["security_name"] or f"Security {row['security_id']}"
+        cashflow_details.append((tx_date, amount, security_name))
+        cashflow_breakdown[tx_date].append(f"{amount:+.2f} ({security_name})")
+
+        tx_type = (row["transaction_type"] or "").strip().lower()
+        shares = float(row["shares"] or 0.0)
+        if tx_type in ("buy", "sell") and shares > 0:
+            position = open_positions[int(row["security_id"])]
+            if not position["security_name"]:
+                position["security_name"] = security_name
+            if tx_type == "buy":
+                position["net_shares"] = float(position["net_shares"] or 0.0) + shares
+            else:
+                position["net_shares"] = float(position["net_shares"] or 0.0) - shares
+
+            price = row["price_per_share"]
+            if price is None and shares > 0:
+                price = abs(amount) / shares
+            if price is not None:
+                last_date = position["last_price_date"]
+                if last_date is None or tx_date >= last_date:
+                    position["last_price"] = float(price)
+                    position["last_price_date"] = tx_date
+
+    open_valuation_entries: List[Tuple[str, float]] = []
+    for security_id, position in open_positions.items():
+        net_shares = float(position["net_shares"] or 0.0)
+        last_price = position["last_price"]
+        if abs(net_shares) <= FLOAT_TOLERANCE or last_price is None:
+            continue
+        security_name = position.get("security_name") or f"Security {security_id}"
+        open_value = net_shares * float(last_price)
+        if abs(open_value) <= FLOAT_TOLERANCE:
+            continue
+        open_valuation_entries.append((security_name, open_value))
+
+    if open_valuation_entries:
+        valuation_date = date.today()
+        latest_existing = max(cashflows) if cashflows else valuation_date
+        if valuation_date < latest_existing:
+            valuation_date = latest_existing
+        for security_name, value in open_valuation_entries:
+            cashflows[valuation_date] += value
+            cashflow_details.append(
+                (valuation_date, value, f"{security_name} (open position)")
+            )
+            cashflow_breakdown[valuation_date].append(
+                f"{value:+.2f} ({security_name} open)"
+            )
 
     if not cashflows:
         logger.info("No valid cash flows found for %s", asset_type_filter)
         return None
 
     ordered_cashflows = sorted(cashflows.items(), key=lambda item: item[0])
+    if debug:
+        if debug_csv_path:
+            _write_cashflow_debug_csv(
+                debug_csv_path,
+                cashflow_details,
+                ordered_cashflows,
+                cashflow_breakdown,
+            )
+        else:
+            logger.warning("Debug flag enabled but no CSV path provided; skipping export")
     return _xirr_from_cashflows(ordered_cashflows)
 
+
+def _write_cashflow_debug_csv(
+    csv_path: str,
+    detail_entries: List[Tuple[date, float, str]],
+    aggregated_entries: List[Tuple[date, float]],
+    breakdown: Dict[date, List[str]],
+) -> None:
+    """Persist cash flow debug data to CSV for detailed analysis."""
+    output_path = Path(csv_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    rows_written = 0
+
+    with output_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(["category", "date", "amount", "details"])
+
+        for flow_date, amount, security_name in sorted(
+            detail_entries, key=lambda entry: (entry[0], entry[1])
+        ):
+            writer.writerow(
+                ["detail", flow_date.isoformat(), f"{amount:.2f}", security_name]
+            )
+            rows_written += 1
+
+        for flow_date, amount in aggregated_entries:
+            components = breakdown.get(flow_date, [])
+            component_label = (
+                f"{len(components)} component{'s' if len(components) != 1 else ''}"
+            )
+            writer.writerow(
+                [
+                    "aggregate_total",
+                    flow_date.isoformat(),
+                    f"{amount:.2f}",
+                    component_label,
+                ]
+            )
+            rows_written += 1
+            for component in components:
+                writer.writerow(["aggregate_component", flow_date.isoformat(), "", component])
+                rows_written += 1
+
+    logger.info(
+        "Cash flow debug CSV written to %s (%d rows)", output_path, rows_written
+    )
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Portfolio XIRR calculator")
+    parser.add_argument(
+        "--asset-type",
+        default="stock",
+        help="Asset type filter (matches security_t.asset_type, default: stock)",
+    )
+    parser.add_argument(
+        "--debug-cashflows",
+        action="store_true",
+        help="Export every cash flow used to compute XIRR",
+    )
+    parser.add_argument(
+        "--cashflow-debug-csv",
+        default="cashflows_debug.csv",
+        help="Output CSV path for --debug-cashflows",
+    )
+    args = parser.parse_args()
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
-    result = calculate_portfolio_xirr()
+
+    result = calculate_portfolio_xirr(
+        asset_type_filter=args.asset_type,
+        debug=args.debug_cashflows,
+        debug_csv_path=args.cashflow_debug_csv if args.debug_cashflows else None,
+    )
     if result is not None:
         print(f"Calculated portfolio XIRR: {result:.2f}%")
     else:
