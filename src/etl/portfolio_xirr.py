@@ -349,6 +349,6 @@ if __name__ == "__main__":
         debug_csv_path=args.cashflow_debug_csv if args.debug_cashflows else None,
     )
     if result is not None:
-        print(f"Calculated portfolio XIRR: {result:.2f}%")
+        print(f"Calculated portfolio XIRR: {result * 100:.2f}%")
     else:
         print("Could not calculate portfolio XIRR")
