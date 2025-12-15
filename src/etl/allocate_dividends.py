@@ -151,12 +151,18 @@ def _sort_segments(segments: DefaultDict[Tuple[int, int], List[HoldingSegment]])
 def _eligible_segments(
     all_segments: Iterable[HoldingSegment],
     dividend_date: date,
+    previous_dividend_date: date | None,
 ) -> List[HoldingSegment]:
+    """Return segments that were open between previous and current dividend dates."""
+
     eligible: List[HoldingSegment] = []
+    prev_cutoff = previous_dividend_date or date.min
     for segment in all_segments:
-        if segment.buy_date > dividend_date:
+        if segment.buy_date >= dividend_date:
             continue
-        eligible.append(segment)
+        sell_date = segment.sell_date
+        if sell_date is None or sell_date >= dividend_date or sell_date > prev_cutoff:
+            eligible.append(segment)
     return eligible
 
 
@@ -172,14 +178,12 @@ def _allocate_for_dividend(
     cursor: sqlite3.Cursor,
     dividend_row: sqlite3.Row,
     segments_by_security: Dict[Tuple[int, int], List[HoldingSegment]],
+    dividend_date: date,
+    previous_dividend_date: date | None,
 ) -> Tuple[bool, int]:
     dividend_id = int(dividend_row["id"])
     broker_id = int(dividend_row["broker_id"])
     security_id = int(dividend_row["security_id"])
-    dividend_date = _to_date(dividend_row["transaction_date"])
-    if dividend_date is None:
-        _record_error(cursor, dividend_id, "Missing transaction_date on dividend")
-        return False, 0
 
     amount = _coalesce_amount(dividend_row, prefer_net=False)
     if abs(amount) <= FLOAT_TOLERANCE:
@@ -188,7 +192,7 @@ def _allocate_for_dividend(
 
     key = (broker_id, security_id)
     segments = segments_by_security.get(key, [])
-    eligible_segments = _eligible_segments(segments, dividend_date)
+    eligible_segments = _eligible_segments(segments, dividend_date, previous_dividend_date)
     if not eligible_segments:
         _record_error(cursor, dividend_id, "No eligible holdings on dividend date")
         return False, 0
@@ -307,6 +311,7 @@ def allocate_dividends(db_path: str | None = None) -> Dict[str, int]:
         "dividends_failed": 0,
         "allocations_created": 0,
     }
+    previous_dividend_dates: Dict[Tuple[int, int], date] = {}
 
     if not dividend_rows:
         logger.info("No unallocated dividends found")
@@ -315,7 +320,24 @@ def allocate_dividends(db_path: str | None = None) -> Dict[str, int]:
         return stats
 
     for dividend_row in dividend_rows:
-        success, allocation_count = _allocate_for_dividend(cursor, dividend_row, segments)
+        dividend_date = _to_date(dividend_row["transaction_date"])
+        if dividend_date is None:
+            _record_error(cursor, int(dividend_row["id"]), "Missing transaction_date on dividend")
+            stats["dividends_failed"] += 1
+            continue
+
+        key = (int(dividend_row["broker_id"]), int(dividend_row["security_id"]))
+        previous_dividend_date = previous_dividend_dates.get(key)
+
+        success, allocation_count = _allocate_for_dividend(
+            cursor,
+            dividend_row,
+            segments,
+            dividend_date,
+            previous_dividend_date,
+        )
+        previous_dividend_dates[key] = dividend_date
+
         if success:
             stats["dividends_allocated"] += 1
             stats["allocations_created"] += allocation_count

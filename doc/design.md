@@ -239,5 +239,42 @@ Columns:
 4. Run analysis queries against normalized tables
 
 #### Allocating dividends to a position
-The dividends are allocated to the earliest BUY transaction that did not yet get dividends. 
-The dividend date must be greater or equal the date of a BUY transaction. The SELL date is not checked.
+The dividends are processed by security_id and brocker_id in order of ascending dividend date.
+The current dividend row is allocated to BUY transactions that have (BUY_date < current_dividend.dividend_date and (Sell_date >= current_dividend.dividend_date or sell_date > previous_dividend.dividend_date)). Note: sell_date is taken from the sell transaction that matched the respective buy transaction - use transaction_match_t table.
+
+If there is no BUY transactions that matches 
+
+For example:
+
+```
+Transactions:
+
+buy_date;sell_date;buy_shares;sell_shares
+2024-03-20;2024-09-27;100;100
+2024-05-07;2024-09-27;100;100
+2024-06-17;2024-09-27;70;70
+2024-08-16;;100
+
+Note: Empty sell_date means that the position is still open
+
+Dividends:
+
+dividend_date;shares
+2024-05-04;100
+2025-05-07;350
+
+Dividend allocation
+
+dividend_date;allocated_to_buy_date;allocated_shares;
+2024-05-24;2024-03-20;100
+2025-05-07;2024-03-20;100
+2025-05-07;2024-05-07;100
+2025-05-07;2024-06-17;70
+2025-05-07;2024-08-16;80
+
+
+When procecessing dividend_date=2025-05-07. previous_dividend.dividend_date=2024-05-04
+
+The BUY transactions that where open between  previous_dividend.dividend_date and current_dividend.dividend_date are eligible for allocating the current dividend.
+```
+
