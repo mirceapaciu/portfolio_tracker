@@ -19,7 +19,11 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from configuration import DB_PATH
-from src.repository.create_db import create_security_t, create_transaction_t
+from src.repository.create_db import (
+    create_dividend_allocation_t,
+    create_security_t,
+    create_transaction_t,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -198,15 +202,22 @@ def calculate_portfolio_xirr(
 
     create_security_t(cursor)
     create_transaction_t(cursor)
+    create_dividend_allocation_t(cursor)
 
     asset_filter_clause = ""
+    dividend_filter_clause = ""
     params: Tuple[str, ...] = ()
     if asset_type_filter:
         asset_filter_clause = """
           AND s.asset_type IS NOT NULL
           AND LOWER(s.asset_type) = LOWER(?)
         """
+        dividend_filter_clause = """
+          AND sec.asset_type IS NOT NULL
+          AND LOWER(sec.asset_type) = LOWER(?)
+        """
         params = (asset_type_filter,)
+    dividend_params = params
 
     cursor.execute(
         f"""
@@ -215,12 +226,30 @@ def calculate_portfolio_xirr(
         FROM transaction_t t
         JOIN security_t s ON s.id = t.security_id
         WHERE t.transaction_date IS NOT NULL
+          AND LOWER(COALESCE(t.transaction_type, '')) <> 'dividend'
         {asset_filter_clause}
         ORDER BY t.transaction_date, t.id
         """,
         params,
     )
     rows = cursor.fetchall()
+    cursor.execute(
+        f"""
+        SELECT da.allocated_amount,
+               div_tx.transaction_date AS dividend_date,
+               sec.security_name,
+               sec.id AS security_id
+        FROM dividend_allocation_t da
+        JOIN transaction_t div_tx ON div_tx.id = da.dividend_transaction_id
+        JOIN security_t sec ON sec.id = da.security_id
+        WHERE div_tx.transaction_date IS NOT NULL
+          AND COALESCE(div_tx.allocated, 0) = 1
+        {dividend_filter_clause}
+        ORDER BY div_tx.transaction_date, da.id
+        """,
+        dividend_params,
+    )
+    dividend_rows = cursor.fetchall()
     conn.close()
 
     scope_label = asset_type_filter or "all asset types"
@@ -272,6 +301,17 @@ def calculate_portfolio_xirr(
                 if last_date is None or tx_date >= last_date:
                     position["last_price"] = float(price)
                     position["last_price_date"] = tx_date
+
+    for row in dividend_rows:
+        div_date = _to_date(row["dividend_date"])
+        if div_date is None:
+            continue
+        amount = float(row["allocated_amount"] or 0.0)
+        if amount == 0.0:
+            continue
+        security_name = row["security_name"] or f"Security {row['security_id']}"
+        cashflows[div_date] += amount
+        cashflow_details.append((div_date, amount, f"{security_name} (dividend allocation)"))
 
     open_valuation_entries: List[Tuple[str, float]] = []
     for security_id, position in open_positions.items():

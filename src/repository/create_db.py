@@ -128,6 +128,8 @@ def create_transaction_t(cursor: sqlite3.Cursor):
             staging_table_id INTEGER,
             staging_row_id INTEGER,
             used_in_realized_gain BOOLEAN DEFAULT 0,
+            allocated BOOLEAN DEFAULT 0,
+            error_message TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (security_id) REFERENCES security_t(id),
             FOREIGN KEY (broker_id) REFERENCES broker_t(id),
@@ -135,28 +137,6 @@ def create_transaction_t(cursor: sqlite3.Cursor):
             UNIQUE (staging_table_id, staging_row_id)
         )
     """)
-
-
-def create_dividend_t(cursor: sqlite3.Cursor):
-    """Create dividend_t normalized table if it doesn't exist."""
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS dividend_t (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            security_id INTEGER,
-            broker_id INTEGER,
-            payment_date DATE,
-            tax_date DATE,
-            dividend_amount DECIMAL,
-            currency TEXT DEFAULT 'EUR',
-            staging_table_id INTEGER,
-            staging_row_id INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (security_id) REFERENCES security_t(id),
-            FOREIGN KEY (broker_id) REFERENCES broker_t(id),
-            FOREIGN KEY (staging_table_id) REFERENCES table_t(id)
-        )
-    """)
-
 
 def create_realized_gain_t(cursor: sqlite3.Cursor):
     """Create realized_gain_t summary table if it doesn't exist."""
@@ -210,4 +190,38 @@ def create_transaction_match_t(cursor: sqlite3.Cursor):
     )
     cursor.execute(
         "CREATE INDEX IF NOT EXISTS idx_transaction_match_sell ON transaction_match_t (sell_transaction_id)"
+    )
+
+
+def create_dividend_allocation_t(cursor: sqlite3.Cursor):
+    """Create dividend_allocation_t table if it doesn't exist."""
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dividend_allocation_t (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            broker_id INTEGER NOT NULL,
+            security_id INTEGER NOT NULL,
+            dividend_transaction_id INTEGER NOT NULL,
+            buy_transaction_id INTEGER NOT NULL,
+            shares DECIMAL NOT NULL,
+            allocated_amount DECIMAL NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (broker_id) REFERENCES broker_t(id),
+            FOREIGN KEY (security_id) REFERENCES security_t(id),
+            FOREIGN KEY (dividend_transaction_id) REFERENCES transaction_t(id),
+            FOREIGN KEY (buy_transaction_id) REFERENCES transaction_t(id),
+            UNIQUE (dividend_transaction_id, buy_transaction_id)
+        )
+    """)
+
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dividend_allocation_dividend"
+        " ON dividend_allocation_t (dividend_transaction_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dividend_allocation_buy"
+        " ON dividend_allocation_t (buy_transaction_id)"
+    )
+    cursor.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dividend_allocation_security"
+        " ON dividend_allocation_t (broker_id, security_id)"
     )
