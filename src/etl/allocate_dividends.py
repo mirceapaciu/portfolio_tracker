@@ -156,8 +156,6 @@ def _eligible_segments(
     for segment in all_segments:
         if segment.buy_date > dividend_date:
             continue
-        if segment.sell_date is not None and dividend_date > segment.sell_date:
-            continue
         eligible.append(segment)
     return eligible
 

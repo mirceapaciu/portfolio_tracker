@@ -237,3 +237,7 @@ Columns:
 2. Transform and load from staging tables into normalized common schema
 3. Link transactions/dividends to securities master data
 4. Run analysis queries against normalized tables
+
+#### Allocating dividends to a position
+The dividends are allocated to the earliest BUY transaction that did not yet get dividends. 
+The dividend date must be greater or equal the date of a BUY transaction. The SELL date is not checked.
