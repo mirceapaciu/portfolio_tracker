@@ -242,8 +242,8 @@ def calculate_portfolio_xirr(
         tx_date = _to_date(row["transaction_date"])
         if tx_date is None:
             continue
-        amount = _coalesce_amount(row)
-        amount = _normalize_cashflow(amount, row["transaction_type"])
+        raw_amount = _coalesce_amount(row)
+        amount = _normalize_cashflow(raw_amount, row["transaction_type"])
         if amount == 0.0:
             continue
         cashflows[tx_date] += amount
@@ -252,18 +252,21 @@ def calculate_portfolio_xirr(
 
         tx_type = (row["transaction_type"] or "").strip().lower()
         shares = float(row["shares"] or 0.0)
-        if tx_type in ("buy", "sell") and shares > 0:
+        shares_abs = abs(shares)
+        if tx_type in ("buy", "sell") and shares_abs > FLOAT_TOLERANCE:
             position = open_positions[int(row["security_id"])]
             if not position["security_name"]:
                 position["security_name"] = security_name
             if tx_type == "buy":
-                position["net_shares"] = float(position["net_shares"] or 0.0) + shares
+                position["net_shares"] = float(position["net_shares"] or 0.0) + shares_abs
             else:
-                position["net_shares"] = float(position["net_shares"] or 0.0) - shares
+                position["net_shares"] = float(position["net_shares"] or 0.0) - shares_abs
 
-            price = row["price_per_share"]
-            if price is None and shares > 0:
-                price = abs(amount) / shares
+            price = None
+            if shares_abs > FLOAT_TOLERANCE:
+                price = abs(raw_amount) / shares_abs
+            if (price is None or price <= FLOAT_TOLERANCE) and row["price_per_share"] is not None:
+                price = float(row["price_per_share"])
             if price is not None:
                 last_date = position["last_price_date"]
                 if last_date is None or tx_date >= last_date:
