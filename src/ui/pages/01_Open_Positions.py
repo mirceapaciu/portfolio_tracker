@@ -65,8 +65,15 @@ if search_term:
     mask = df["Security"].str.contains(search_term, case=False, na=False)
     df = df[mask]
 
+# Render the DataFrame with numeric formatting for the "Position value" column
 st.dataframe(
-    df.sort_values("Position value", ascending=False, na_position="last"),
+    df,
+    column_config={
+        "Position value": st.column_config.NumberColumn(
+            "Position value",
+            format="%.2f",
+        )
+    },
     use_container_width=True,
 )
 
