@@ -88,6 +88,41 @@ Key columns:
 - amount: total value (positive both for buys and for sells)
 - financial_transaction_tax
 
+
+### Comdirect open positions file
+This is a txt file that is obtained by saving the HTML page as txt file.
+
+An entry  in this file looks like this:
+
+```
+Wert:
+7.764,00
+Seit Kauf:
++2.134,00 (+37,90%)
+Wertentw. 1 Woche:
++6,18%
+    200	ARCELORMITTAL S.A. NOUV. <https://kunde.comdirect.de/itx/openEwf?
+execution=e1s1&notationId=20086641&instrumentId=18465668&wkn=A2DRTZ>	
+<#f1-t-0-notizenEntry>  <#>
+        
+    A2DRTZ
+Aktie
+EUR	A2DRTZ	Aktie	EUR	38,82
+-0,33
+-0,84%	38,82	-0,33	-0,84%	7.764,00
++2.134,00
++37,90%	7.764,00	+2.134,00	+37,90%	16.12.2025
+17:35:44
+XETRA	16.12.2025	17:35:44	XETRA	
+K <#f1-t-0-j_idt512>
+V <#f1-t-0-verkaufenEntry>
+
+<#f1-t-0-absichernEntry>
+    10,07
++1,21%	10,07	+1,21%	+6,18%	K 3  H 3  V 0  +50%Kaufen 3, Halten 3,
+Verkaufen 0, +50%
+```
+
 ## Database Schema
 
 ### Staging Tables (Broker-Specific)
