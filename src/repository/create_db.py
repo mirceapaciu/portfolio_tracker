@@ -130,7 +130,8 @@ def create_table_t(cursor: sqlite3.Cursor):
 
 def create_transaction_t(cursor: sqlite3.Cursor):
     """Create transaction_t normalized table if it doesn't exist."""
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS transaction_t (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             security_id INTEGER,
@@ -154,11 +155,31 @@ def create_transaction_t(cursor: sqlite3.Cursor):
             FOREIGN KEY (staging_table_id) REFERENCES table_t(id),
             UNIQUE (staging_table_id, staging_row_id)
         )
-    """)
+        """
+    )
+
+
+def create_market_price_t(cursor: sqlite3.Cursor):
+    """Create market_price table if it doesn't exist."""
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS market_price (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            security_id INTEGER NOT NULL,
+            share_price DECIMAL NOT NULL,
+            price_date DATE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (security_id) REFERENCES security_t(id),
+            UNIQUE (security_id, price_date)
+        )
+        """
+    )
+
 
 def create_realized_gain_t(cursor: sqlite3.Cursor):
     """Create realized_gain_t summary table if it doesn't exist."""
-    cursor.execute("""
+    cursor.execute(
+        """
         CREATE TABLE IF NOT EXISTS realized_gain_t (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             broker_id INTEGER NOT NULL,
@@ -175,7 +196,8 @@ def create_realized_gain_t(cursor: sqlite3.Cursor):
             FOREIGN KEY (broker_id) REFERENCES broker_t(id),
             FOREIGN KEY (security_id) REFERENCES security_t(id)
         )
-    """)
+        """
+    )
 
 
 def create_transaction_match_t(cursor: sqlite3.Cursor):
