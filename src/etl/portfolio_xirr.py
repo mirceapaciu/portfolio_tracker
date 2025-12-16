@@ -510,7 +510,7 @@ def _write_cashflow_debug_csv(
 
     with output_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["category", "date", "amount", "details"])
+        writer.writerow(["date", "amount", "details"])
 
         for flow_date, amount, security_name in sorted(
             detail_entries, key=lambda entry: (entry[0], entry[1])
