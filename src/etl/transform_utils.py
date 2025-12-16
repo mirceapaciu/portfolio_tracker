@@ -23,7 +23,7 @@ def transform_transaction_type(raw_type: str) -> str:
         raw_type: Raw transaction type from staging table
         
     Returns:
-        Normalized transaction type: 'buy', 'sell', 'dividend', 'interest', 'distribution'
+        Normalized transaction type: 'buy', 'sell', 'dividend'
     """
     if not raw_type:
         return None
@@ -43,17 +43,17 @@ def transform_transaction_type(raw_type: str) -> str:
         'inl. dividenden': 'dividend',
         'ausl dividenden': 'dividend',
         'inl dividenden': 'dividend',
-        'interest': 'interest',
-        'zinsen': 'interest',
-        'ausl. zinsen': 'interest',
-        'inl. zinsen': 'interest',
-        'ausl zinsen': 'interest',
-        'inl zinsen': 'interest',
-        'distribution': 'distribution',
-        'ausschuettung': 'distribution',
-        'ausschuttung': 'distribution',
-        'investm. ausschuettung': 'distribution',
-        'investm. ausschuttung': 'distribution'
+        'interest': 'dividend',
+        'zinsen': 'dividend',
+        'ausl. zinsen': 'dividend',
+        'inl. zinsen': 'dividend',
+        'ausl zinsen': 'dividend',
+        'inl zinsen': 'dividend',
+        'distribution': 'dividend',
+        'ausschuettung': 'dividend',
+        'ausschuttung': 'dividend',
+        'investm. ausschuettung': 'dividend',
+        'investm. ausschuttung': 'dividend'
     }
 
     if normalized in type_mapping:
@@ -61,8 +61,8 @@ def transform_transaction_type(raw_type: str) -> str:
 
     pattern_map = (
         (r'divid', 'dividend'),
-        (r'aussch', 'distribution'),
-        (r'zins', 'interest'),
+        (r'aussch', 'dividend'),
+        (r'zins', 'dividend'),
     )
 
     for pattern, mapped in pattern_map:
