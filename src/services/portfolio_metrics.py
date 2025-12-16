@@ -11,6 +11,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 from configuration import DB_PATH
 from src.etl.portfolio_xirr import _to_date, calculate_portfolio_xirr
+from src.repository.create_db import create_market_price_t
 
 logger = logging.getLogger(__name__)
 FLOAT_TOLERANCE = 1e-9
@@ -104,15 +105,24 @@ def get_open_positions_summary(
              FROM transaction_t
              WHERE transaction_type IN ('buy', 'sell')
             ) AS latest_raw
+        ),
+        latest_market AS (
+            SELECT
+                security_id,
+                share_price AS market_price,
+                price_date,
+                ROW_NUMBER() OVER (PARTITION BY security_id ORDER BY price_date DESC, id DESC) AS rn
+            FROM market_price_t
         )
     SELECT np.security_id,
            s.security_name,
            np.net_shares,
-            lt.unit_price,
-           lt.transaction_date
+           COALESCE(lm.market_price, lt.unit_price) AS latest_price,
+           COALESCE(lm.price_date, lt.transaction_date) AS latest_price_date
     FROM net_positions np
     JOIN security_t s ON s.id = np.security_id
     LEFT JOIN last_trade lt ON lt.security_id = np.security_id AND lt.rn = 1
+    LEFT JOIN latest_market lm ON lm.security_id = np.security_id AND lm.rn = 1
     WHERE (
         :asset_type IS NULL
         OR (
@@ -130,6 +140,7 @@ def get_open_positions_summary(
 
     with sqlite3.connect(path) as conn:
         conn.row_factory = sqlite3.Row
+        create_market_price_t(conn.cursor())
         rows = conn.execute(query, params).fetchall()
 
     positions = _rows_to_positions(rows)
@@ -194,14 +205,14 @@ def get_portfolio_xirr(
 def _rows_to_positions(rows: Iterable[sqlite3.Row]) -> List[PositionSnapshot]:
     positions: List[PositionSnapshot] = []
     for row in rows:
-        last_price = float(row["unit_price"]) if row["unit_price"] is not None else None
+        last_price = float(row["latest_price"]) if row["latest_price"] is not None else None
         positions.append(
             PositionSnapshot(
                 security_id=int(row["security_id"]),
                 security_name=str(row["security_name"]),
                 net_shares=float(row["net_shares"] or 0.0),
                 last_price=last_price,
-                last_price_date=_to_date(row["transaction_date"]),
+                last_price_date=_to_date(row["latest_price_date"]),
             )
         )
     return positions

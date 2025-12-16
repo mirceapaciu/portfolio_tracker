@@ -21,6 +21,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from configuration import DB_PATH
 from src.repository.create_db import (
     create_dividend_allocation_t,
+    create_market_price_t,
     create_security_t,
     create_transaction_match_t,
     create_transaction_t,
@@ -205,6 +206,7 @@ def calculate_portfolio_xirr(
     create_security_t(cursor)
     create_transaction_t(cursor)
     create_dividend_allocation_t(cursor)
+    create_market_price_t(cursor)
 
     asset_filter_clause = ""
     dividend_filter_clause = ""
@@ -252,7 +254,39 @@ def calculate_portfolio_xirr(
         dividend_params,
     )
     dividend_rows = cursor.fetchall()
+
+    cursor.execute(
+        f"""
+        WITH latest_price AS (
+            SELECT security_id, MAX(price_date) AS price_date
+            FROM market_price_t
+            GROUP BY security_id
+        )
+        SELECT mp.security_id,
+               mp.share_price,
+               mp.price_date
+        FROM market_price_t mp
+        JOIN latest_price lp
+          ON lp.security_id = mp.security_id
+         AND lp.price_date = mp.price_date
+        JOIN security_t sec ON sec.id = mp.security_id
+        WHERE 1 = 1
+        {dividend_filter_clause}
+        """,
+        dividend_params,
+    )
+    market_price_rows = cursor.fetchall()
     conn.close()
+
+    market_prices: Dict[int, Tuple[float, date | None]] = {}
+    for row in market_price_rows:
+        share_price = row["share_price"]
+        if share_price is None:
+            continue
+        market_prices[int(row["security_id"])] = (
+            float(share_price),
+            _to_date(row["price_date"]),
+        )
 
     scope_label = asset_type_filter or "all asset types"
     if not rows:
@@ -317,11 +351,19 @@ def calculate_portfolio_xirr(
     open_valuation_entries: List[Tuple[str, float]] = []
     for security_id, position in open_positions.items():
         net_shares = float(position["net_shares"] or 0.0)
+        if abs(net_shares) <= FLOAT_TOLERANCE:
+            continue
         last_price = position["last_price"]
-        if abs(net_shares) <= FLOAT_TOLERANCE or last_price is None:
+        preferred_price = None
+        market_price_entry = market_prices.get(security_id)
+        if market_price_entry is not None:
+            preferred_price = market_price_entry[0]
+        elif last_price is not None:
+            preferred_price = float(last_price)
+        if preferred_price is None:
             continue
         security_name = position.get("security_name") or f"Security {security_id}"
-        open_value = net_shares * float(last_price)
+        open_value = net_shares * float(preferred_price)
         if abs(open_value) <= FLOAT_TOLERANCE:
             continue
         open_valuation_entries.append((security_name, open_value))
