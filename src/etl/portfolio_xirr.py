@@ -516,7 +516,7 @@ def _write_cashflow_debug_csv(
             detail_entries, key=lambda entry: (entry[0], entry[1])
         ):
             writer.writerow(
-                ["detail", flow_date.isoformat(), f"{amount:.2f}", security_name]
+                [flow_date.isoformat(), f"{amount:.2f}", security_name]
             )
             rows_written += 1
 
