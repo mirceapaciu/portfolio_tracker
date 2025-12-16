@@ -6,7 +6,7 @@ from typing import List, Optional
 
 import streamlit as st
 
-from src.ui.services.portfolio_metrics import get_asset_type_options
+from src.services.portfolio_metrics import get_asset_type_options
 
 ALL_ASSET_TYPES_OPTION = "All"
 

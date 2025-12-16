@@ -23,7 +23,7 @@ def _bootstrap_project_root() -> Path:
 _PROJECT_ROOT = _bootstrap_project_root()
 
 from src.ui.components.filters import asset_type_selector, resolve_asset_type_filter
-from src.ui.services import portfolio_metrics
+from src.services import portfolio_metrics
 
 st.set_page_config(page_title="Open Positions", page_icon="📊", layout="wide")
 
