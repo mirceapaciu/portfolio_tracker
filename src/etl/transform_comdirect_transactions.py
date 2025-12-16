@@ -9,6 +9,7 @@ import logging
 import sqlite3
 from pathlib import Path
 import sys
+from typing import Dict, Optional
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
@@ -25,6 +26,27 @@ from src.repository.table_repository import get_or_create_table_id
 from src.etl.transform_utils import transform_transaction_type
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_asset_type(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
+
+
+def _get_asset_type(
+    cursor: sqlite3.Cursor,
+    security_id: int,
+    cache: Dict[int, Optional[str]],
+) -> Optional[str]:
+    if security_id in cache:
+        return cache[security_id]
+    cursor.execute("SELECT asset_type FROM security_t WHERE id = ?", (security_id,))
+    row = cursor.fetchone()
+    asset_type = _normalize_asset_type(row[0]) if row and row[0] else None
+    cache[security_id] = asset_type
+    return asset_type
 
 
 def transform_comdirect_transactions(db_path: str = None) -> dict:
@@ -58,6 +80,7 @@ def transform_comdirect_transactions(db_path: str = None) -> dict:
     stats = {'processed': 0, 'errors': 0, 'skipped': 0}
 
     logger.info(f"Processing {len(records)} unprocessed Comdirect transactions")
+    asset_type_cache: Dict[int, Optional[str]] = {}
 
     for row in records:
         (
@@ -82,12 +105,15 @@ def transform_comdirect_transactions(db_path: str = None) -> dict:
                 continue
 
             security_id = get_or_create_security(cursor, bezeichnung, wkn=wkn)
+            asset_type = _get_asset_type(cursor, security_id, asset_type_cache)
             normalized_type = transform_transaction_type(geschaeftsart)
             if not normalized_type and geschaeftsart:
                 normalized_type = geschaeftsart.lower().strip()
 
             shares = float(stuecke_nominal) if stuecke_nominal is not None else 0.0
             price = float(kurs) if kurs is not None else 0.0
+            if asset_type == 'bond':
+                price /= 100.0
             total_value = float(kurswert_eur) if kurswert_eur is not None else None
             fees = float(entgelt_eur) if entgelt_eur is not None else 0.0
             net_amount = float(kundenendbetrag_eur) if kundenendbetrag_eur is not None else None

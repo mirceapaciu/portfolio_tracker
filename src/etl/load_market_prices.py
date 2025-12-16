@@ -8,6 +8,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from typing import Optional
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from configuration import DB_PATH, LOADER_LOG_PATH
@@ -23,6 +25,27 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+
+
+def _normalize_asset_type(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip().lower()
+    return normalized or None
+
+
+def _get_asset_type(
+    cursor: sqlite3.Cursor,
+    security_id: int,
+    cache: dict[int, Optional[str]],
+) -> Optional[str]:
+    if security_id in cache:
+        return cache[security_id]
+    cursor.execute("SELECT asset_type FROM security_t WHERE id = ?", (security_id,))
+    row = cursor.fetchone()
+    asset_type = _normalize_asset_type(row[0]) if row and row[0] else None
+    cache[security_id] = asset_type
+    return asset_type
 
 
 def fetch_open_positions(cursor: sqlite3.Cursor) -> list[dict]:
@@ -62,6 +85,7 @@ def load_market_prices(db_path: str | None = None) -> None:
         print("No new open positions to process.")
         return
 
+    asset_type_cache: dict[int, Optional[str]] = {}
     inserted = 0
     for position in positions:
         security_id = get_or_create_security(cursor, position["security_name"])
@@ -72,6 +96,11 @@ def load_market_prices(db_path: str | None = None) -> None:
             logger.warning("Skipping position with missing price/date: %s", position)
             continue
 
+        asset_type = _get_asset_type(cursor, security_id, asset_type_cache)
+        normalized_price = float(share_price)
+        if asset_type == "bond":
+            normalized_price /= 100.0
+
         cursor.execute(
             """
             INSERT INTO market_price_t (security_id, share_price, price_date)
@@ -80,7 +109,7 @@ def load_market_prices(db_path: str | None = None) -> None:
                 share_price = excluded.share_price,
                 created_at = CURRENT_TIMESTAMP
             """,
-            (security_id, share_price, price_date),
+            (security_id, normalized_price, price_date),
         )
 
         inserted += 1
