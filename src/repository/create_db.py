@@ -74,6 +74,24 @@ def create_traderepublic_transactions_staging(cursor: sqlite3.Cursor):
     """)
 
 
+def create_open_position_staging_t(cursor: sqlite3.Cursor):
+    """Create open_position_staging_t table if it doesn't exist."""
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS open_position_staging_t (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            broker TEXT NOT NULL,
+            security_name TEXT NOT NULL,
+            shares DECIMAL,
+            share_price DECIMAL,
+            amount DECIMAL,
+            position_date DATE,
+            import_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            source_file TEXT,
+            processed BOOLEAN DEFAULT 0
+        )
+    """)
+
+
 def create_broker_t(cursor: sqlite3.Cursor):
     """Create broker_t master table if it doesn't exist."""
     cursor.execute("""
