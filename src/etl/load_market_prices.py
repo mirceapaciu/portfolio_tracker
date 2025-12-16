@@ -1,4 +1,4 @@
-"""Transform open_position_staging_t rows into market_price snapshots."""
+"""Transform open_position_staging_t rows into market_price_t snapshots."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def load_market_prices(db_path: str | None = None) -> None:
 
         cursor.execute(
             """
-            INSERT INTO market_price (security_id, share_price, price_date)
+            INSERT INTO market_price_t (security_id, share_price, price_date)
             VALUES (?, ?, ?)
             ON CONFLICT(security_id, price_date) DO UPDATE SET
                 share_price = excluded.share_price,

@@ -160,10 +160,10 @@ def create_transaction_t(cursor: sqlite3.Cursor):
 
 
 def create_market_price_t(cursor: sqlite3.Cursor):
-    """Create market_price table if it doesn't exist."""
+    """Create market_price_t table if it doesn't exist."""
     cursor.execute(
         """
-        CREATE TABLE IF NOT EXISTS market_price (
+        CREATE TABLE IF NOT EXISTS market_price_t (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             security_id INTEGER NOT NULL,
             share_price DECIMAL NOT NULL,
