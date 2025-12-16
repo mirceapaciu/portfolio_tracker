@@ -260,7 +260,7 @@ def calculate_portfolio_xirr(
         return None
 
     cashflows: Dict[date, float] = defaultdict(float)
-    cashflow_details: List[Tuple[date, float, str]] = []
+    cashflow_details: List[Tuple[date, float, str, str]] = []
     open_positions: Dict[int, Dict[str, float | date | None | str]] = defaultdict(
         lambda: {
             "net_shares": 0.0,
@@ -279,9 +279,8 @@ def calculate_portfolio_xirr(
             continue
         cashflows[tx_date] += amount
         security_name = row["security_name"] or f"Security {row['security_id']}"
-        cashflow_details.append((tx_date, amount, security_name))
-
         tx_type = (row["transaction_type"] or "").strip().lower()
+        cashflow_details.append((tx_date, amount, security_name, tx_type or "unknown"))
         shares = float(row["shares"] or 0.0)
         shares_abs = abs(shares)
         if tx_type in ("buy", "sell") and shares_abs > FLOAT_TOLERANCE:
@@ -313,8 +312,8 @@ def calculate_portfolio_xirr(
             continue
         security_name = row["security_name"] or f"Security {row['security_id']}"
         cashflows[div_date] += amount
-        cashflow_details.append((div_date, amount, f"{security_name} (dividend allocation)"))
-
+        cashflow_details.append((div_date, amount, security_name, "dividend"))
+        
     open_valuation_entries: List[Tuple[str, float]] = []
     for security_id, position in open_positions.items():
         net_shares = float(position["net_shares"] or 0.0)
@@ -335,7 +334,7 @@ def calculate_portfolio_xirr(
         for security_name, value in open_valuation_entries:
             cashflows[valuation_date] += value
             cashflow_details.append(
-                (valuation_date, value, f"{security_name} (open position)")
+                (valuation_date, value, security_name, "open position")
             )
 
     if not cashflows:
@@ -412,7 +411,7 @@ def calculate_portfolio_xirr_closed_positions(
         return None
 
     cashflows: Dict[date, float] = defaultdict(float)
-    cashflow_details: List[Tuple[date, float, str]] = []
+    cashflow_details: List[Tuple[date, float, str, str]] = []
     matched_buy_ids: List[int] = []
     seen_buy_ids: set[int] = set()
 
@@ -428,12 +427,12 @@ def calculate_portfolio_xirr_closed_positions(
         if abs(cost) > FLOAT_TOLERANCE:
             outflow = -abs(cost)
             cashflows[buy_date] += outflow
-            cashflow_details.append((buy_date, outflow, f"{security_name} (buy allocation)"))
+            cashflow_details.append((buy_date, outflow, security_name, "buy"))
 
         proceeds = float(row["allocated_proceeds"] or 0.0)
         if abs(proceeds) > FLOAT_TOLERANCE:
             cashflows[sell_date] += proceeds
-            cashflow_details.append((sell_date, proceeds, f"{security_name} (sell allocation)"))
+            cashflow_details.append((sell_date, proceeds, security_name, "sell"))
 
         buy_id = int(row["buy_transaction_id"])
         if buy_id not in seen_buy_ids:
@@ -481,7 +480,7 @@ def calculate_portfolio_xirr_closed_positions(
             security_name = row["security_name"] or "Dividend"
             cashflows[div_date] += amount
             cashflow_details.append(
-                (div_date, amount, f"{security_name} (dividend allocation)")
+                (div_date, amount, security_name, "dividend")
             )
 
     conn.close()
@@ -501,7 +500,7 @@ def calculate_portfolio_xirr_closed_positions(
 
 def _write_cashflow_debug_csv(
     csv_path: str,
-    detail_entries: List[Tuple[date, float, str]],
+    detail_entries: List[Tuple[date, float, str, str]],
 ) -> None:
     """Persist detailed cash flow debug data to CSV."""
     output_path = Path(csv_path)
@@ -510,13 +509,13 @@ def _write_cashflow_debug_csv(
 
     with output_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["date", "amount", "details"])
+        writer.writerow(["date", "amount", "security", "transaction_type"])
 
-        for flow_date, amount, security_name in sorted(
+        for flow_date, amount, security_name, transaction_type in sorted(
             detail_entries, key=lambda entry: (entry[0], entry[1])
         ):
             writer.writerow(
-                [flow_date.isoformat(), f"{amount:.2f}", security_name]
+                [flow_date.isoformat(), f"{amount:.2f}", security_name, transaction_type]
             )
             rows_written += 1
 
